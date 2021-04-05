@@ -78,3 +78,68 @@ class VoiceCallHandlerThread(DBusThread):
 
     def endAllCalls(self):
         self._ofonoVCM.HangupAll()
+
+    def handleCallAdd(self, path, properties):
+        self.logger.debug(f"Call added: {path} - {properties}")
+
+        # Get the VoiceCall object and add it to the list
+        voiceCallObj = {
+            "path": path, # Path to call
+            "object": dbus.Interface(self.sysBus.get_object(f"org.ofono", path), 'org.ofono.VoiceCall'), # Interface to call, properties always updated
+            "staticProps": dbus.Interface(self.sysBus.get_object(f"org.ofono", path), 'org.ofono.VoiceCall').GetProperties() # Properties of call when first started
+        }
+
+        self.calls.append(voiceCallObj)
+
+        # Generate a callback function that also identifies the voicecall
+        def handleCallPropertyChange(prop, value):
+            # Print property change
+            self.logger.debug(f"Property '{prop}' in call '{path}' changed: {value}")
+            
+            # Run extra callback
+            if callable(self.handleCallPropertyChangeExtra):
+                self.handleCallPropertyChangeExtra(voiceCallObj, prop, value)
+        
+        voiceCallObj["object"].connect_to_signal("PropertyChanged", handleCallPropertyChange)
+
+        # Check if incoming, only useful for debug
+        if properties["State"] == "incoming":
+            if properties["Name"] != "":
+                self.logger.info(f"Incoming call from {properties['Name']}")
+            elif properties["LineIdentification"] != "":
+                self.logger.info(f"Incoming call from {properties['LineIdentification']}")
+            else:
+                self.logger.info("Incoming call from unknown")
+        elif properties["State"] == "dialing":
+            if properties["Name"] != "":
+                self.logger.info(f"Dialing {properties['Name']}")
+            elif properties["LineIdentification"] != "":
+                self.logger.info(f"Dialing {properties['LineIdentification']}")
+            else:
+                self.logger.info(f"Dialing unknown number")
+
+        # Run extra callback if we can
+        if callable(self.handleCallAddExtra):
+            self.handleCallAddExtra(voiceCallObj)
+
+    def handleCallRemove(self, path):
+        self.logger.debug(f"Call removed: {path}")
+
+        # Get which call obj it is
+        callIndex = next((i for i, call in enumerate(self.calls) if call["path"] == path), None)
+        
+        if callIndex != None:
+            # Let us know what the number is
+            phoneNum = self.calls[callIndex]["staticProps"]["LineIdentification"]
+            if phoneNum != "":
+                self.logger.info(f"Disconnected call from/to {phoneNum}")
+            else:
+                self.logger.info(f"Disconnected call from/to unknown number")
+
+        # Run extra callback if we can
+        if callable(self.handleCallRemoveExtra):
+            self.handleCallRemoveExtra(self.calls[callIndex])
+        
+        if callIndex != None:
+            # Delete from list
+            del self.calls[callIndex]
