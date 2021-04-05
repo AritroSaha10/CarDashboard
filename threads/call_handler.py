@@ -24,8 +24,8 @@ class VoiceCallHandlerThread(DBusThread):
     # Should have 3 params, voice call obj, the changed property, and the changed value
     handleCallPropertyChangeExtra = None
 
-    def __init__(self, handleCallAddExtra = None, handleCallRemoveExtra = None, handleCallPropertyChangeExtra = None):
-        super().__init__("VoiceCallHandlerThread", logging.DEBUG)
+    def __init__(self, logLevel, handleCallAddExtra = None, handleCallRemoveExtra = None, handleCallPropertyChangeExtra = None):
+        super().__init__("VoiceCallHandlerThread", logLevel)
 
         # Initialize variables
         try:

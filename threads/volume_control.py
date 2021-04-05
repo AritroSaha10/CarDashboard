@@ -3,12 +3,13 @@ import os, sys, logging
 import dbus
 import threading
 
-# Transports volume control on phone to actual volume on pi
+# Transports volume control on phone to actual volume on pi, none of the functions here should actually be run
 class VolumeControlThread(DBusThread):
     VOLUME_MAX = 127
+    currentVol = 0
 
-    def __init__(self):
-        super().__init__("VolumeControlThread", logging.DEBUG) # Initializes DBus stuff
+    def __init__(self, logLevel):
+        super().__init__("VolumeControlThread", logLevel) # Initializes DBus stuff
         
         # Add listeners to org.bluez
         self.sysBus.add_signal_receiver(
@@ -41,6 +42,7 @@ class VolumeControlThread(DBusThread):
         if paIdx:
             self.logger.debug(u'Running pactl set-source-volume {} {}'.format(paIdx, format(float(volume) / self.VOLUME_MAX, '.2f')))
             os.system('pactl set-source-volume {} {}'.format(paIdx, format(float(volume) / self.VOLUME_MAX, '.2f')))
+            self.currentVol = float(volume) / self.VOLUME_MAX
         else:
             self.logger.debug(u'Skipping volume change')
     
