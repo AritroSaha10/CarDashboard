@@ -36,6 +36,8 @@ class DBusThread:
         try:
             dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
             self.sysBus = dbus.SystemBus()
+            self.mainLoop = GObject.MainLoop()
+            
         except Exception as ex:
             self.logger.error('Unable to get the system dbus: "{0}". Exiting. Is dbus running?'.format(str(ex)))
             sys.exit(1)

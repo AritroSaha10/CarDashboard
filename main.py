@@ -3,7 +3,7 @@
 from threads.volume_control import VolumeControlThread
 from threads.playback_control import PlaybackControlThread
 from threads.call_handler import VoiceCallHandlerThread
-
+from threads.bluetooth_control import BluetoothControlThread
 from time import sleep
 import logging
 
@@ -20,16 +20,21 @@ def playbackPropertyChangeCallback(pct, changed):
             continue
 
 if __name__ == "__main__":
-    vct = VolumeControlThread(GLOBAL_LOGGING_LEVEL)
-    pct = PlaybackControlThread(GLOBAL_LOGGING_LEVEL, playbackPropertyChangeCallback)
-    vcht = VoiceCallHandlerThread(GLOBAL_LOGGING_LEVEL)
+    def runAfterConnection():
+        vct = VolumeControlThread(GLOBAL_LOGGING_LEVEL)
+        pct = PlaybackControlThread(GLOBAL_LOGGING_LEVEL, playbackPropertyChangeCallback)
+        vcht = VoiceCallHandlerThread(GLOBAL_LOGGING_LEVEL)
 
+    bct = BluetoothControlThread(GLOBAL_LOGGING_LEVEL, runAfterConnection)
+
+    """
     sleep(20)
     pct.play()
     sleep(2)
     pct.pause()
     sleep(2)
     # pct.nextTrack()
+    """
     
     input("Press return to exit...")
 
