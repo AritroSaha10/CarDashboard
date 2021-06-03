@@ -5,9 +5,20 @@ from threads.playback_control import PlaybackControlThread
 from threads.call_handler import VoiceCallHandlerThread
 from threads.bluetooth_control import BluetoothControlThread
 from time import sleep
-import logging
+import logging, atexit
 
 GLOBAL_LOGGING_LEVEL = logging.DEBUG
+
+# Threads
+threads = {}
+
+def exitHandler():
+    # Disconnect all connected devices
+    for device in threads["bct"].get_all_connected():
+        print(device["obj"])
+        device["obj"].Disconnect()
+    
+    print("Exiting application...")
 
 def playbackPropertyChangeCallback(pct, changed):
     for prop, value in changed.items():
@@ -20,12 +31,20 @@ def playbackPropertyChangeCallback(pct, changed):
             continue
 
 if __name__ == "__main__":
-    def runAfterConnection():
-        vct = VolumeControlThread(GLOBAL_LOGGING_LEVEL)
-        pct = PlaybackControlThread(GLOBAL_LOGGING_LEVEL, playbackPropertyChangeCallback)
-        vcht = VoiceCallHandlerThread(GLOBAL_LOGGING_LEVEL)
+    # Register exit handler
+    atexit.register(exitHandler)
 
-    bct = BluetoothControlThread(GLOBAL_LOGGING_LEVEL, runAfterConnection)
+    # Start bluetooth thread and wait for connection
+    threads["bct"] = BluetoothControlThread(GLOBAL_LOGGING_LEVEL)
+    threads["bct"].wait_for_connection()
+
+    # Wait before starting other threads
+    sleep(1.5)
+
+    # Start other threads
+    threads["vct"] = VolumeControlThread(GLOBAL_LOGGING_LEVEL)
+    threads["pct"] = PlaybackControlThread(GLOBAL_LOGGING_LEVEL, playbackPropertyChangeCallback)
+    threads["vcht"] = VoiceCallHandlerThread(GLOBAL_LOGGING_LEVEL)
 
     """
     sleep(20)

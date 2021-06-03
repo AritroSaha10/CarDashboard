@@ -1,7 +1,8 @@
 from threads.dbus_thread import DBusThread
-import os, sys, logging
+import os, sys, logging, subprocess
 import dbus
 import threading
+from time import sleep
 
 # Constants
 SERVICE_NAME = "org.bluez"
@@ -21,31 +22,21 @@ class BluetoothControlThread(DBusThread):
     device = None
     deviceObj = None
     mainLoop = None
-
-    connectionCreated = False
     
-    callback = None
-
-    def __init__(self, logLevel, callback):
+    def __init__(self, logLevel):
         super().__init__("BluetoothThread", logLevel) # Initializes DBus stuff
-
-        self.callback = callback
 
         # Initialize DBus variables
         self.agent = BluetoothAgent(self.sysBus, AGENT_PATH)
         self.obj = self.sysBus.get_object(SERVICE_NAME, "/org/bluez");
         self.manager = dbus.Interface(self.obj, "org.bluez.AgentManager1")
-        
-        
-
-        # Request default agent
-        # self.manager.RequestDefaultAgent(AGENT_PATH)
-
-        # Start discovery
-        # self.find_adapter_in_objects(self.get_managed_objects()).StartDiscovery()
 
         # Turn on power
         self.find_adapter_in_objects(self.get_managed_objects()).Powered = True
+
+        # Pairable and discoverable
+        self.find_adapter_in_objects(self.get_managed_objects()).Pairable = True
+        self.find_adapter_in_objects(self.get_managed_objects()).Discoverable = True
 
         # Register agent
         self.manager.RegisterAgent(AGENT_PATH, CAPABILITY)
@@ -54,14 +45,80 @@ class BluetoothControlThread(DBusThread):
         # Request default agent
         self.manager.RequestDefaultAgent(AGENT_PATH)
 
-        # Pairable and discoverable
-        self.find_adapter_in_objects(self.get_managed_objects()).Pairable = True
-        self.find_adapter_in_objects(self.get_managed_objects()).Discoverable = True
+        # I think this is the thing that makes it actually discoverable
+        subprocess.run("./turnOnPair", stdout=subprocess.PIPE)
 
         # Start mainloop
         super().runMainLoop()
+    
+    def wait_for_connection(self):
+        starting = self.get_all_connected()
+        addrs = [device["addr"] for device in starting]
+        
+        # Wait for device to connect
+        while True:
+            curr = self.get_all_connected()
+            if len(curr) == 1:
+                self.logger.info(f"{curr[0]['name']} is connecting...")
 
+                # Check if it was paired before
+                wasPairedBefore = False
+                for i, dic in enumerate(curr):
+                    if dic["addr"] in addrs:
+                        wasPairedBefore = True
+                        break
+
+                # If not paired, wait for a service authorization before continuing
+                if not wasPairedBefore:
+                    self.logger.debug("Device is being paired, waiting for authorization before continuing...")
+                    while True:
+                        if self.agent.auth_count > 0:
+                            self.logger.info("At least 1 service has been authorized!")
+                            break
+                        self.logger.info("Waiting...")
+                        sleep(1.5)
+                
+                # Wait 1 second for services to authorize (takes less time but better to be safe since relying on time)
+                sleep(1)
+
+                # Should be connected
+                self.logger.info(f"{curr[0]['name']} has connected!")
+                
+                # Make device undiscoverable so others can't connect
+                subprocess.run("./makeUndiscoverable", stdout=subprocess.PIPE)
+                break
+            else:
+                self.logger.info("Waiting for connection...")
+            sleep(1)
+    
     # Util functions
+    def get_all_connected(self):
+        interface_name = "org.bluez.Device1"
+        objects = self.get_managed_objects()
+        results = []
+
+        for path in objects.keys():
+            interfaces = objects[path]
+            for interface in interfaces.keys():
+                if interface == interface_name:
+                    results.append(path)
+
+        real_result = []
+
+        for result in results:
+            obj = self.sysBus.get_object('org.bluez', result)
+            iface = dbus.Interface(obj, "org.freedesktop.DBus.Properties")
+            real_result.append({
+                "obj": dbus.Interface(obj, "org.bluez.Device1"),
+                "name": str(iface.Get("org.bluez.Device1", "Name")),
+                "addr": str(iface.Get("org.bluez.Device1", "Address")),
+                "paired": bool(iface.Get("org.bluez.Device1", "Paired")),
+                "connected": bool(iface.Get("org.bluez.Device1", "Connected"))
+            })
+        
+        real_result = [result for result in real_result if result["connected"]]
+        return real_result
+    
     def get_managed_objects(self):
         manager = dbus.Interface(self.sysBus.get_object("org.bluez", "/"),
                     "org.freedesktop.DBus.ObjectManager")
@@ -106,11 +163,6 @@ class BluetoothControlThread(DBusThread):
         self.set_trusted(dev_path)
         self.dev_connect(dev_path)
 
-        # Run callbacks
-        self.connectionCreated = True
-        if (callable(self.callback)):
-            self.callback()
-
         self.mainLoop.quit()
 
     def pair_error(self, error):
@@ -134,24 +186,23 @@ class BluetoothControlThread(DBusThread):
         dev.Connect()
 
 class BluetoothAgent(dbus.service.Object):
-	exit_on_release = True
+    exit_on_release = True
+    auth_count = 0
 
-	def set_exit_on_release(self, exit_on_release):
-		self.exit_on_release = exit_on_release
+    def set_exit_on_release(self, exit_on_release):
+        self.exit_on_release = exit_on_release
 
-	@dbus.service.method(AGENT_INTERFACE,
-					in_signature="os", out_signature="")
-	def AuthorizeService(self, device, uuid):
-		print("AuthorizeService (%s, %s)" % (device, uuid))
-		return
+    @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
+    def AuthorizeService(self, device, uuid):
+        print("AuthorizeService (%s, %s)" % (device, uuid))
+        self.auth_count += 1
+        return
 
-	@dbus.service.method(AGENT_INTERFACE,
-					in_signature="o", out_signature="")
-	def RequestAuthorization(self, device):
-		print("RequestAuthorization (%s)" % (device))
-		return
+    @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="")
+    def RequestAuthorization(self, device):
+        print("RequestAuthorization (%s)" % (device))
+        return
 
-	@dbus.service.method(AGENT_INTERFACE,
-					in_signature="", out_signature="")
-	def Cancel(self):
-		print("Cancel")
+    @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
+    def Cancel(self):
+        print("Cancel")

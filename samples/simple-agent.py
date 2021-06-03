@@ -48,10 +48,7 @@ class Agent(dbus.service.Object):
 					in_signature="os", out_signature="")
 	def AuthorizeService(self, device, uuid):
 		print("AuthorizeService (%s, %s)" % (device, uuid))
-		authorize = ask("Authorize connection (yes/no): ")
-		if (authorize == "yes"):
-			return
-		raise Rejected("Connection rejected by user")
+		return
 
 	@dbus.service.method(AGENT_INTERFACE,
 					in_signature="o", out_signature="")
@@ -81,12 +78,24 @@ def pair_error(error):
 
 	mainloop.quit()
 
+def device_property_changed_cb(property_name, value, path, interface):
+    device = dbus.Interface(bus.get_object("org.bluez", path), "org.bluez.Device")
+    properties = device.GetProperties()
+
+    if (property_name == "Connected"):
+        action = "connected" if value else "disconnected"
+#
+# Replace with your code to write to the PiFace
+#
+        print("The device %s [%s] is %s " % (properties["Alias"], properties["Address"], action))
+
+
 if __name__ == '__main__':
 	dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
 	bus = dbus.SystemBus()
 
-	capability = "KeyboardDisplay"
+	capability = "NoInputNoOutput"
 
 	parser = OptionParser()
 	parser.add_option("-i", "--adapter", action="store",
@@ -107,11 +116,20 @@ if __name__ == '__main__':
 
 	mainloop = GObject.MainLoop()
 
+	# Turn on power
+	bluezutils.find_adapter_in_objects(bluezutils.get_managed_objects()).Powered = True
+
+	# Pairable and discoverable
+	bluezutils.find_adapter_in_objects(bluezutils.get_managed_objects()).Pairable = True
+	bluezutils.find_adapter_in_objects(bluezutils.get_managed_objects()).Discoverable = True
+
 	obj = bus.get_object(BUS_NAME, "/org/bluez");
 	manager = dbus.Interface(obj, "org.bluez.AgentManager1")
 	manager.RegisterAgent(path, capability)
 
 	print("Agent registered")
+
+	print(args)
 
 	# Fix-up old style invocation (BlueZ 4)
 	if len(args) > 0 and args[0].startswith("hci"):
@@ -124,10 +142,14 @@ if __name__ == '__main__':
 		dev_path = device.object_path
 		agent.set_exit_on_release(False)
 		device.Pair(reply_handler=pair_reply, error_handler=pair_error,
-								timeout=60000)
+								timeout=6000000)
 		device_obj = device
 	else:
 		manager.RequestDefaultAgent(path)
+
+	bus.add_signal_receiver(device_property_changed_cb, bus_name="org.bluez", signal_name="PropertyChanged",
+            dbus_interface="org.bluez.Device", path_keyword="path", interface_keyword="interface")
+
 
 	mainloop.run()
 
