@@ -178,8 +178,9 @@ class PlaybackControlThread(DBusThread):
         if not os.path.exists(fname):
             # Link has been fetched, we can download now
             albumArtImg = requests.get(likelyAlbumArtLink, stream=True)
-            with open(fname, 'wb') as f:
-                shutil.copyfileobj(albumArtImg.raw, f)
+            # Commented out because we'll be using a read-only FS
+            # with open(fname, 'wb') as f:
+            #     shutil.copyfileobj(albumArtImg.raw, f)
             del albumArtImg
 
         # Filename of img
