@@ -1,0 +1,4 @@
+#!/bin/sh
+
+#/home/pi/carDashboard/turnOnPair
+python3 /home/pi/carDashboard/main.py

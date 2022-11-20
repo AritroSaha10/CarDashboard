@@ -46,7 +46,7 @@ class BluetoothControlThread(DBusThread):
         self.manager.RequestDefaultAgent(AGENT_PATH)
 
         # I think this is the thing that makes it actually discoverable
-        subprocess.run("./turnOnPair", stdout=subprocess.PIPE)
+        subprocess.run("/home/pi/carDashboard/turnOnPair", stdout=subprocess.PIPE)
 
         # Start mainloop
         super().runMainLoop()
@@ -85,7 +85,7 @@ class BluetoothControlThread(DBusThread):
                 self.logger.info(f"{curr[0]['name']} has connected!")
                 
                 # Make device undiscoverable so others can't connect
-                subprocess.run("./makeUndiscoverable", stdout=subprocess.PIPE)
+                subprocess.run("/home/pi/carDashboard/makeUndiscoverable", stdout=subprocess.PIPE)
                 break
             else:
                 self.logger.info("Waiting for connection...")
