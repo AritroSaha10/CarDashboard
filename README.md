@@ -1,6 +1,4 @@
 # Car Dashboard
-Currently just BT Audio for cars lol
-
 Meant for Raspberry Pis
 
 ## Setup
