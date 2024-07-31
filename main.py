@@ -19,7 +19,7 @@ def exitHandler():
     for device in threads["bct"].get_all_connected():
         print(device["obj"])
         device["obj"].Disconnect()
-    
+
     print("Exiting application...")
 
 def playbackPropertyChangeCallback(pct, changed):
@@ -35,16 +35,17 @@ def playbackPropertyChangeCallback(pct, changed):
             continue
 
     # Update web server thread with information
-    threads["wst"].update_data(pct.trackInfo, pct.playbackStatus, albumArtImgLink)
+    # threads["wst"].update_data(pct.trackInfo, pct.playbackStatus, albumArtImgLink)
 
 if __name__ == "__main__":
     # Register exit handler
     atexit.register(exitHandler)
 
-    threads["wst"] = WebServerThread(GLOBAL_LOGGING_LEVEL)
-    
+    # threads["wst"] = WebServerThread(GLOBAL_LOGGING_LEVEL)
+
     # Start bluetooth thread and wait for connection
     threads["bct"] = BluetoothControlThread(GLOBAL_LOGGING_LEVEL)
+    threads["bct"].register_agents()
     threads["bct"].wait_for_connection()
 
     # Wait before starting other threads
@@ -53,10 +54,13 @@ if __name__ == "__main__":
     # Start other threads
     threads["vct"] = VolumeControlThread(GLOBAL_LOGGING_LEVEL)
     threads["pct"] = PlaybackControlThread(GLOBAL_LOGGING_LEVEL, playbackPropertyChangeCallback)
+    # Voice call handler is removed because it would need a BT dongle to work properly on RPi 3A+
     # threads["vcht"] = VoiceCallHandlerThread(GLOBAL_LOGGING_LEVEL)
 
-    threads["wst"].run()
-    
+    # threads["wst"].run()
+
+    for thread_name in threads:
+        threads[thread_name].mainLoopThread.join()
     """
     sleep(20)
     pct.play()
@@ -65,6 +69,5 @@ if __name__ == "__main__":
     sleep(2)
     # pct.nextTrack()
     """
-    
-    input("Press return to exit...")
-
+    # Keep commented when running as a systemd service
+    # input("Press return to exit...")
