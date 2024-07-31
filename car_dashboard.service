@@ -8,7 +8,9 @@ Type=simple
 Restart=always
 RestartSec=1
 User=pi
-ExecStart=/home/pi/carDashboard/startupScript
+ExecStart=/usr/bin/python3.9 /home/pi/carDashboard/main.py
+#StandardOutput=append:/var/log/car_dashboard/standard.log
+#StandardError=append:/var/log/car_dashboard/error.log
 
 [Install]
 WantedBy=multi-user.target
