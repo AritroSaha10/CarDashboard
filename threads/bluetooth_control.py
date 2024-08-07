@@ -22,7 +22,7 @@ class BluetoothControlThread(DBusThread):
     device = None
     deviceObj = None
     mainLoop = None
-    
+
     def __init__(self, logLevel):
         super().__init__("BluetoothThread", logLevel) # Initializes DBus stuff
 
@@ -31,30 +31,59 @@ class BluetoothControlThread(DBusThread):
         self.obj = self.sysBus.get_object(SERVICE_NAME, "/org/bluez");
         self.manager = dbus.Interface(self.obj, "org.bluez.AgentManager1")
 
-        # Turn on power
-        self.find_adapter_in_objects(self.get_managed_objects()).Powered = True
+        self.sysBus.add_signal_receiver(
+            self.on_device_disconnect,
+            dbus_interface="org.freedesktop.DBus.ObjectManager",
+            signal_name="InterfacesRemoved"
+        )
 
-        # Pairable and discoverable
-        self.find_adapter_in_objects(self.get_managed_objects()).Pairable = True
-        self.find_adapter_in_objects(self.get_managed_objects()).Discoverable = True
+        # Start main loop
+        super().runMainLoop()
 
-        # Register agent
+    def register_agents(self):
         self.manager.RegisterAgent(AGENT_PATH, CAPABILITY)
         self.logger.info("Agent registered")
 
         # Request default agent
         self.manager.RequestDefaultAgent(AGENT_PATH)
 
+    def wait_for_connection(self, skip_auto_connect: bool = False):
+        # Turn on power
+        # self.find_adapter_in_objects(self.get_managed_objects()).Powered = True
+
+        # Pairable and discoverable
+        # self.find_adapter_in_objects(self.get_managed_objects()).Pairable = True
+        # self.find_adapter_in_objects(self.get_managed_objects()).Discoverable = True
+
+        # Check for auto-conns, proceeding with them if they exist
+        initial_conns = self.get_all_connected()
+        if len(initial_conns) > 0:
+            self.logger.info(f"Connected to {initial_conns[0]['name']}! Skipping pairing process...")
+            return
+
+        initial_devices = self.get_all_paired()
+        initial_addrs = [device["addr"] for device in initial_devices]
+        if not skip_auto_connect:
+            # Try connecting to everything in pair list first for auto-connect
+            initial_conn_successful = False
+            for device in initial_devices:
+                try:
+                    device["obj"].Connect()
+                    self.logger.info(f"Successfully connected to {device['name']} ({device['addr']})!")
+                    initial_conn_successful = True
+                    break
+                except dbus.exceptions.DBusException as e:
+                    self.logger.error(f"Failed to connect to {device['name']} ({device['addr']}): {e}")
+            if initial_conn_successful:
+                self.logger.info("Auto-connection successful, skipping pairing process...")
+                return
+            else:
+                self.logger.info("Auto-connection failed, starting pairing process...")
+
         # I think this is the thing that makes it actually discoverable
         subprocess.run("/home/pi/carDashboard/turnOnPair", stdout=subprocess.PIPE)
+        self.logger.info("Pairing has been turned on")
 
-        # Start mainloop
-        super().runMainLoop()
-    
-    def wait_for_connection(self):
-        starting = self.get_all_connected()
-        addrs = [device["addr"] for device in starting]
-        
         # Wait for device to connect
         while True:
             curr = self.get_all_connected()
@@ -64,7 +93,7 @@ class BluetoothControlThread(DBusThread):
                 # Check if it was paired before
                 wasPairedBefore = False
                 for i, dic in enumerate(curr):
-                    if dic["addr"] in addrs:
+                    if dic["addr"] in initial_addrs:
                         wasPairedBefore = True
                         break
 
@@ -77,20 +106,20 @@ class BluetoothControlThread(DBusThread):
                             break
                         self.logger.info("Waiting...")
                         sleep(1.5)
-                
+
                 # Wait 1 second for services to authorize (takes less time but better to be safe since relying on time)
                 sleep(1)
 
                 # Should be connected
                 self.logger.info(f"{curr[0]['name']} has connected!")
-                
+
                 # Make device undiscoverable so others can't connect
                 subprocess.run("/home/pi/carDashboard/makeUndiscoverable", stdout=subprocess.PIPE)
                 break
             else:
                 self.logger.info("Waiting for connection...")
             sleep(1)
-    
+
     # Util functions
     def get_all_connected(self):
         interface_name = "org.bluez.Device1"
@@ -115,10 +144,39 @@ class BluetoothControlThread(DBusThread):
                 "paired": bool(iface.Get("org.bluez.Device1", "Paired")),
                 "connected": bool(iface.Get("org.bluez.Device1", "Connected"))
             })
-        
+
         real_result = [result for result in real_result if result["connected"]]
         return real_result
-    
+
+    def get_all_paired(self):
+        interface_name = "org.bluez.Device1"
+        objects = self.get_managed_objects()
+        results = []
+
+        for path in objects.keys():
+            interfaces = objects[path]
+            for interface in interfaces.keys():
+                if interface == interface_name:
+                    results.append(path)
+
+        real_result = []
+        for result in results:
+            print(result)
+            obj = self.sysBus.get_object('org.bluez', result)
+            iface = dbus.Interface(obj, "org.freedesktop.DBus.Properties")
+
+            real_result.append({
+                "obj": dbus.Interface(obj, "org.bluez.Device1"),
+                "name": str(iface.Get("org.bluez.Device1", "Name")),
+                "addr": str(iface.Get("org.bluez.Device1", "Address")),
+                "paired": bool(iface.Get("org.bluez.Device1", "Paired")),
+                "connected": bool(iface.Get("org.bluez.Device1", "Connected")),
+                "icon": str(iface.Get("org.bluez.Device1", "Icon")) if "Icon" in iface.GetAll("org.bluez.Device1") else None
+            })
+
+        real_result = [result for result in real_result if result["paired"]]
+        return real_result
+
     def get_managed_objects(self):
         manager = dbus.Interface(self.sysBus.get_object("org.bluez", "/"),
                     "org.freedesktop.DBus.ObjectManager")
@@ -157,6 +215,13 @@ class BluetoothControlThread(DBusThread):
                 return dbus.Interface(obj, DEVICE_INTERFACE)
 
         raise Exception("Bluetooth device not found")
+
+    def on_device_disconnect(self, connection, object_path):
+        if "org.bluez.MediaPlayer1" in object_path:
+            self.logger.info(f"Interface disconnected: {connection}")
+            # Give it some time to complete disconnect
+            sleep(2)
+            self.wait_for_connection(True)
 
     def pair_reply(self):
         self.logger.info("Device paired")

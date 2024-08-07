@@ -19,7 +19,7 @@ class VoiceCallHandlerThread(DBusThread):
     # Both funcs should have 1 param, call obj that was added / removed
     handleCallAddExtra = None
     handleCallRemoveExtra = None
-    
+
     # Extra callback for when call property changes
     # Should have 3 params, voice call obj, the changed property, and the changed value
     handleCallPropertyChangeExtra = None
@@ -34,10 +34,11 @@ class VoiceCallHandlerThread(DBusThread):
                 "org.ofono.Manager"
             )
             self._modem = self._manager.GetModems()[0][0]
-        except:
+        except Exception as err:
             self.logger.error("Could not start because ofono was not found")
+            self.logger.error(err)
             sys.exit(1)
-        
+
         # Fetch dbus vcm
         self._ofonoVCM = dbus.Interface(
             self.sysBus.get_object("org.ofono", self._modem),
@@ -95,11 +96,11 @@ class VoiceCallHandlerThread(DBusThread):
         def handleCallPropertyChange(prop, value):
             # Print property change
             self.logger.debug(f"Property '{prop}' in call '{path}' changed: {value}")
-            
+
             # Run extra callback
             if callable(self.handleCallPropertyChangeExtra):
                 self.handleCallPropertyChangeExtra(voiceCallObj, prop, value)
-        
+
         voiceCallObj["object"].connect_to_signal("PropertyChanged", handleCallPropertyChange)
 
         # Check if incoming, only useful for debug
@@ -127,7 +128,7 @@ class VoiceCallHandlerThread(DBusThread):
 
         # Get which call obj it is
         callIndex = next((i for i, call in enumerate(self.calls) if call["path"] == path), None)
-        
+
         if callIndex != None:
             # Let us know what the number is
             phoneNum = self.calls[callIndex]["staticProps"]["LineIdentification"]
@@ -139,7 +140,7 @@ class VoiceCallHandlerThread(DBusThread):
         # Run extra callback if we can
         if callable(self.handleCallRemoveExtra):
             self.handleCallRemoveExtra(self.calls[callIndex])
-        
+
         if callIndex != None:
             # Delete from list
             del self.calls[callIndex]
